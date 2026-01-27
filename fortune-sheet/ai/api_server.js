@@ -3,6 +3,9 @@
  * Connects to FortuneSheet application and provides APIs for AI processing
  */
 
+// Load environment variables from .env file
+require('dotenv').config();
+
 const express = require("express");
 const cors = require("cors");
 

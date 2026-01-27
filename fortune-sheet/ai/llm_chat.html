@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FortuneSheet LLM Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 1200px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .chat-header .status {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            text-align: right;
+        }
+
+        .message.assistant {
+            text-align: left;
+        }
+
+        .message-content {
+            display: inline-block;
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+
+        .api-call {
+            margin-top: 10px;
+            padding: 12px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
+        .api-call-header {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .api-call-header::before {
+            content: "🔧";
+            font-size: 16px;
+        }
+
+        .api-result {
+            margin-top: 8px;
+            padding: 10px;
+            background: #d1ecf1;
+            border-left: 4px solid #0c5460;
+            border-radius: 6px;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .api-result-header {
+            font-weight: bold;
+            color: #0c5460;
+            margin-bottom: 5px;
+        }
+
+        .api-result pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+
+        .table-preview {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .table-preview-header {
+            font-weight: bold;
+            color: #0066cc;
+            margin-bottom: 5px;
+        }
+
+        .table-preview pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+
+        .send-button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .send-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-button:active {
+            transform: translateY(0);
+        }
+
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .timestamp {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🤖 FortuneSheet LLM Assistant</h1>
+            <div class="status" id="status">Connecting...</div>
+            <button onclick="showExplanation()" style="margin-top: 10px; padding: 8px 16px; background: rgba(255,255,255,0.2); border: 1px solid white; border-radius: 20px; color: white; cursor: pointer; font-size: 12px;">📖 How It Works</button>
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="message assistant">
+                <div class="message-content">
+                    👋 Hello! I'm your FortuneSheet AI assistant. I can help you:
+                    <ul style="margin-top: 10px; padding-left: 20px;">
+                        <li>Read data from spreadsheets</li>
+                        <li>Build financial models</li>
+                        <li>Analyze data and create summaries</li>
+                        <li>Add formulas and calculations</li>
+                    </ul>
+                    <p style="margin-top: 10px;">Try asking me: "Get the data from the first sheet" or "Create a financial model with revenue projections"</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-input-container">
+            <div class="chat-input-wrapper">
+                <input 
+                    type="text" 
+                    class="chat-input" 
+                    id="chatInput" 
+                    placeholder="Tell me what to do... (e.g., 'Read sheet 1' or 'Build a revenue model')"
+                    autocomplete="off"
+                />
+                <button class="send-button" id="sendButton" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const LLM_SERVER_URL = 'http://localhost:5001';
+        const API_SERVER_URL = 'http://localhost:5000';
+        let conversationHistory = [];
+
+        // Check connection on load
+        window.addEventListener('load', () => {
+            checkConnection();
+        });
+
+        // Enter key to send
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        async function checkConnection() {
+            try {
+                const response = await fetch(`${LLM_SERVER_URL}/api/health`);
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('status');
+                if (data.gemini_initialized) {
+                    statusEl.textContent = '✅ Connected - Ready to chat';
+                    statusEl.style.color = '#4caf50';
+                } else {
+                    statusEl.textContent = '⚠️ Gemini not initialized - Set GEMINI_API_KEY';
+                    statusEl.style.color = '#ff9800';
+                }
+            } catch (error) {
+                document.getElementById('status').textContent = '❌ Cannot connect to LLM server';
+                document.getElementById('status').style.color = '#f44336';
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // Disable input
+            input.disabled = true;
+            document.getElementById('sendButton').disabled = true;
+            
+            // Add user message to chat
+            addMessage('user', message);
+            
+            // Clear input
+            input.value = '';
+            
+            // Show loading
+            const loadingId = addMessage('assistant', '<div class="loading"></div> Processing...');
+            
+            try {
+                // Send to LLM
+                const response = await fetch(`${LLM_SERVER_URL}/api/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: message,
+                        history: conversationHistory
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Remove loading message
+                removeMessage(loadingId);
+                
+                // Add assistant response
+                let responseHtml = escapeHtml(data.response);
+                
+                // Add API call information
+                if (data.functionCalls && data.functionCalls.length > 0) {
+                    responseHtml += '<div class="api-call">';
+                    responseHtml += '<div class="api-call-header">API Calls Made:</div>';
+                    
+                    data.functionCalls.forEach((call, index) => {
+                        responseHtml += `<div style="margin-top: 8px;">`;
+                        responseHtml += `<strong>${call.name}</strong><br>`;
+                        responseHtml += `<code style="font-size: 11px;">${JSON.stringify(call.args, null, 2)}</code>`;
+                        responseHtml += `</div>`;
+                    });
+                    
+                    responseHtml += '</div>';
+                }
+                
+                // Add API results
+                if (data.functionResults && data.functionResults.length > 0) {
+                    data.functionResults.forEach((result, index) => {
+                        responseHtml += '<div class="api-result">';
+                        responseHtml += `<div class="api-result-header">API Result: ${result.name}</div>`;
+                        
+                        // Check if result contains table data
+                        const responseData = result.response;
+                        if (responseData && (responseData.values_table || responseData.formulas_table)) {
+                            // Show both tables separately for clarity
+                            if (responseData.values_table) {
+                                responseHtml += '<div class="table-preview">';
+                                responseHtml += '<div class="table-preview-header">📊 Values Table (actual cell values):</div>';
+                                responseHtml += '<pre>' + JSON.stringify(responseData.values_table, null, 2) + '</pre>';
+                                responseHtml += '</div>';
+                            }
+                            
+                            if (responseData.formulas_table) {
+                                responseHtml += '<div class="table-preview">';
+                                responseHtml += '<div class="table-preview-header">📝 Formulas Table (formulas where they exist):</div>';
+                                responseHtml += '<pre>' + JSON.stringify(responseData.formulas_table, null, 2) + '</pre>';
+                                responseHtml += '</div>';
+                            }
+                            
+                            // Also show full response for reference
+                            responseHtml += '<div style="margin-top: 8px; font-size: 11px; opacity: 0.7;">';
+                            responseHtml += '<strong>Note:</strong> Both tables are sent to the LLM together in the same response object.';
+                            responseHtml += '</div>';
+                        } else {
+                            responseHtml += '<pre>' + JSON.stringify(responseData, null, 2) + '</pre>';
+                        }
+                        
+                        responseHtml += '</div>';
+                    });
+                }
+                
+                // Add extracted table if present
+                if (data.extractedTable) {
+                    responseHtml += '<div class="table-preview">';
+                    responseHtml += '<div class="table-preview-header">📋 Extracted Table Format:</div>';
+                    responseHtml += '<pre>' + JSON.stringify(data.extractedTable, null, 2) + '</pre>';
+                    responseHtml += '</div>';
+                }
+                
+                addMessage('assistant', responseHtml);
+                
+                // Update conversation history
+                conversationHistory.push(
+                    { role: 'user', content: message },
+                    { role: 'assistant', content: data.response }
+                );
+                
+            } catch (error) {
+                removeMessage(loadingId);
+                addMessage('assistant', `<div class="error">❌ Error: ${escapeHtml(error.message)}<br><br>Make sure:<br>1. LLM server is running (npm run llm)<br>2. API server is running (npm start)<br>3. GEMINI_API_KEY is set</div>`);
+            } finally {
+                // Re-enable input
+                input.disabled = false;
+                document.getElementById('sendButton').disabled = false;
+                input.focus();
+            }
+        }
+
+        function addMessage(role, content) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.id = `msg-${Date.now()}-${Math.random()}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = content;
+            
+            const timestamp = document.createElement('div');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = new Date().toLocaleTimeString();
+            
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timestamp);
+            messagesContainer.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            return messageDiv.id;
+        }
+
+        function removeMessage(messageId) {
+            const message = document.getElementById(messageId);
+            if (message) {
+                message.remove();
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function showExplanation() {
+            try {
+                const response = await fetch(`${LLM_SERVER_URL}/api/explain`);
+                const data = await response.json();
+                
+                const explanation = `
+📚 <strong>FortuneSheet AI Framework</strong>
+
+<strong>How It Works:</strong>
+1. ${data.howItWorks.step1}
+2. ${data.howItWorks.step2}
+3. ${data.howItWorks.step3}
+4. ${data.howItWorks.step4}
+5. ${data.howItWorks.step5}
+6. ${data.howItWorks.step6}
+
+<strong>Available Sheets:</strong>
+${data.sheets.map((s, i) => `${i + 1}. "${s.name}" (ID: ${s.id})`).join('<br>') || 'No sheets available'}
+
+<strong>Tools Available:</strong>
+${data.tools.map(t => `• ${t}`).join('<br>')}
+
+<strong>Key Features:</strong>
+${data.features.map(f => `✓ ${f}`).join('<br>')}
+                `;
+                
+                addMessage('assistant', explanation);
+            } catch (error) {
+                addMessage('assistant', `<div class="error">❌ Could not load explanation: ${error.message}</div>`);
+            }
+        }
+    </script>
+</body>
+</html>
+
