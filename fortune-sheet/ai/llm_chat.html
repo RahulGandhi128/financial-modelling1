@@ -342,6 +342,11 @@
             const loadingId = addMessage('assistant', '<div class="loading"></div> Processing...');
             
             try {
+                // Optional client-side timeout (defaults to 120s)
+                const timeoutMs = 120000;
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
                 // Send to LLM
                 const response = await fetch(`${LLM_SERVER_URL}/api/chat`, {
                     method: 'POST',
@@ -351,8 +356,11 @@
                     body: JSON.stringify({
                         query: message,
                         history: conversationHistory
-                    })
+                    }),
+                    signal: controller.signal
                 });
+
+                clearTimeout(timeoutId);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -435,7 +443,10 @@
                 
             } catch (error) {
                 removeMessage(loadingId);
-                addMessage('assistant', `<div class="error">❌ Error: ${escapeHtml(error.message)}<br><br>Make sure:<br>1. LLM server is running (npm run llm)<br>2. API server is running (npm start)<br>3. GEMINI_API_KEY is set</div>`);
+                const msg = (error && (error.name === 'AbortError'))
+                  ? 'Request timed out after 120s (client-side). Try a smaller request or ask it step-by-step.'
+                  : error.message;
+                addMessage('assistant', `<div class="error">❌ Error: ${escapeHtml(msg)}<br><br>Make sure:<br>1. LLM server is running (npm run llm)<br>2. API server is running (npm start)<br>3. GEMINI_API_KEY is set</div>`);
             } finally {
                 // Re-enable input
                 input.disabled = false;

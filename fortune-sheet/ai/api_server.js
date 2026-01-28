@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// FortuneSheet workbook updates can get large; bump JSON limit to avoid PayloadTooLargeError
+app.use(express.json({ limit: process.env.JSON_LIMIT || "25mb" }));
 
 // Store workbook data (in production, connect to database or FortuneSheet backend)
 let workbookData = [];
@@ -337,7 +338,9 @@ app.post("/api/sheet/:id/from-table", (req, res) => {
   // Process values table
   if (values_table) {
     for (const [rowNum, cols] of Object.entries(values_table)) {
-      const row = parseInt(rowNum, 10) - 1; // Convert to 0-based
+      // Strip quotes from row number if present (e.g., "'39'" -> "39")
+      const cleanRowNum = rowNum.replace(/^['"]+|['"]+$/g, '');
+      const row = parseInt(cleanRowNum, 10) - 1; // Convert to 0-based
       if (isNaN(row) || row < 0) continue;
       
       for (const [colLetter, value] of Object.entries(cols)) {
@@ -364,7 +367,9 @@ app.post("/api/sheet/:id/from-table", (req, res) => {
   // Process formulas table (overrides values if same cell)
   if (formulas_table) {
     for (const [rowNum, cols] of Object.entries(formulas_table)) {
-      const row = parseInt(rowNum, 10) - 1; // Convert to 0-based
+      // Strip quotes from row number if present (e.g., "'39'" -> "39")
+      const cleanRowNum = rowNum.replace(/^['"]+|['"]+$/g, '');
+      const row = parseInt(cleanRowNum, 10) - 1; // Convert to 0-based
       if (isNaN(row) || row < 0) continue;
       
       for (const [colLetter, formulaOrValue] of Object.entries(cols)) {

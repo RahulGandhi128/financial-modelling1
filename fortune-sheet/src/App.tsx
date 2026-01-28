@@ -1,6 +1,11 @@
-import React, { useCallback, useRef, useEffect } from "react";
+import React, { useCallback, useRef, useEffect, useState } from "react";
 import { Workbook, WorkbookInstance } from "@fortune-sheet/react";
 import { Sheet } from "@fortune-sheet/core";
+import {
+  FortuneExcelHelper,
+  importToolBarItem,
+  exportToolBarItem,
+} from "@corbe30/fortune-excel";
 // Import CSS from dist folder (using relative path since alias points to src)
 import "../packages/react/dist/index.css";
 
@@ -17,6 +22,7 @@ declare global {
 
 const App: React.FC = () => {
   const workbookRef = useRef<WorkbookInstance>(null);
+  const [workbookKey, setWorkbookKey] = useState(0);
   // Start with empty sheet - ready for real-world data
   const [data, setData] = React.useState<Sheet[]>([
     {
@@ -73,11 +79,24 @@ const App: React.FC = () => {
 
   return (
     <div style={{ width: "100%", height: "100vh" }}>
+      <FortuneExcelHelper
+        setKey={setWorkbookKey}
+        setSheets={setData}
+        // Pass the workbook ref so export/import helpers can access
+        // getAllSheets, getSheet, setColumnWidth, setRowHeight, etc.
+        sheetRef={workbookRef as any}
+        config={{
+          import: { xlsx: true, csv: true },
+          export: { xlsx: true, csv: true },
+        }}
+      />
       <Workbook
+        key={workbookKey}
         ref={workbookRef}
         data={data}
         onChange={onChange}
         onOp={onOp}
+        customToolbarItems={[importToolBarItem(), exportToolBarItem()]}
       />
     </div>
   );

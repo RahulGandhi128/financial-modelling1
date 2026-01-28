@@ -16,7 +16,8 @@ const PORT = process.env.LLM_PORT || 5001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Chat payloads can be large (history + tables); bump JSON limit
+app.use(express.json({ limit: process.env.JSON_LIMIT || "10mb" }));
 
 // Initialize API client and Gemini service
 let apiClient;

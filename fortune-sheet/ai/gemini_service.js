@@ -17,9 +17,10 @@ class GeminiService {
     this.tools = new LLMTools(apiClient);
     this.toolDefinitions = this.createToolDefinitions();
     
-    // Initialize model with tools
+    // Initialize model WITH tools (this is where @google/generative-ai expects tools)
     this.model = this.genAI.getGenerativeModel({ 
-      model: 'gemini-2.0-flash-exp'
+      model: 'gemini-2.5-flash',
+      tools: this.toolDefinitions
     });
   }
 
@@ -141,7 +142,6 @@ Always use set_from_table when you need to write data, as it matches the format 
       // Start chat session with tools
       const chat = this.model.startChat({
         history: history,
-        tools: this.toolDefinitions,
         generationConfig: {
           temperature: 0.7,
           topK: 40,
@@ -171,9 +171,9 @@ Always use set_from_table when you need to write data, as it matches the format 
           // Format function response for Gemini API
           // Note: Gemini expects the response as a structured object
           // If there's an error, wrap it properly
-          const responseData = toolResult.error 
-            ? { error: true, message: toolResult.message }
-            : toolResult;
+          const responseData = toolResult?.error
+            ? { error: true, message: toolResult.message, details: toolResult.details ?? null }
+            : (Array.isArray(toolResult) ? { result: toolResult } : (toolResult && typeof toolResult === 'object' ? toolResult : { result: toolResult }));
             
           functionResults.push({
             functionResponse: {
@@ -197,8 +197,37 @@ Always use set_from_table when you need to write data, as it matches the format 
         };
       } else {
         // No function calls, just return text response
+        const text = response.text();
+
+        // Gemini can return an empty text when content is blocked (safety/other finish reasons).
+        // In that case, surface a helpful message to the UI instead of "".
+        if (!text || String(text).trim() === "") {
+          const candidates = response.candidates || [];
+          const finishReason = candidates?.[0]?.finishReason || candidates?.[0]?.finish_reason || null;
+          const safetyRatings = candidates?.[0]?.safetyRatings || candidates?.[0]?.safety_ratings || null;
+          const promptFeedback = response.promptFeedback || null;
+
+          const debug = {
+            finishReason,
+            safetyRatings,
+            promptFeedback
+          };
+
+          console.warn("⚠️ Gemini returned empty text response.", debug);
+
+          return {
+            text:
+              "⚠️ Gemini returned an empty response. This is usually due to safety/blocked output or a finish reason that produced no text.\n\n" +
+              "If you want, try rephrasing the request (e.g., avoid asking for 'perfectly' or extremely broad tasks) or ask it to do one step at a time.\n\n" +
+              "Debug:\n" +
+              JSON.stringify(debug, null, 2),
+            functionCalls: [],
+            functionResults: []
+          };
+        }
+
         return {
-          text: response.text(),
+          text,
           functionCalls: [],
           functionResults: []
         };
@@ -216,7 +245,7 @@ Always use set_from_table when you need to write data, as it matches the format 
     const response = await this.processQuery(userQuery, conversationHistory);
     
     // Try to extract JSON from response if LLM outputs it
-    const text = response.text();
+    const text = response.text;
     const jsonMatch = text.match(/\{[\s\S]*"values_table"[\s\S]*\}/);
     
     if (jsonMatch) {
