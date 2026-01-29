@@ -254,7 +254,13 @@ User runs test_apis.py
    - Returns values table and formulas table
    - Includes Excel-style coordinates (A1, B2, etc.)
 
-4. **GET `/api/health`**
+4. **POST `/api/sheets`**
+   - Create a new sheet in the workbook
+   - Accepts optional `name` and `order` parameters
+   - Returns the new sheet's ID and name
+   - Used by LLM to create new sheets for organizing data
+
+5. **GET `/api/health`**
    - Health check endpoint
    - Used to verify AI service is running
 

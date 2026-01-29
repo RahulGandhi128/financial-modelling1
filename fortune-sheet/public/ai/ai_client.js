@@ -128,6 +128,9 @@ class FortuneSheetAIClient {
       }
       
       try {
+        // First, check for pending sheet creations
+        await this.checkAndApplyNewSheets();
+        
         // Get all sheets
         const sheets = await this.getAllSheets();
         
@@ -159,6 +162,64 @@ class FortuneSheetAIClient {
   }
 
   /**
+   * Check for and apply new sheets created by the AI service
+   */
+  async checkAndApplyNewSheets() {
+    if (!window.workbookRef?.current) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiUrl}/api/pending-sheet-creations`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (data.sheets && data.sheets.length > 0) {
+        const workbook = window.workbookRef.current;
+        
+        for (const sheetInfo of data.sheets) {
+          try {
+            // Check if sheet already exists
+            const allSheets = workbook.getAllSheets();
+            const sheetExists = allSheets.some(s => s.id === sheetInfo.id);
+            
+            if (!sheetExists) {
+              // Add the sheet using the API with the specific ID
+              workbook.addSheet(sheetInfo.id);
+              
+              // Wait a bit for the sheet to be created
+              await new Promise(resolve => setTimeout(resolve, 100));
+              
+              // Set the sheet name
+              if (sheetInfo.name) {
+                try {
+                  workbook.setSheetName(sheetInfo.name, { id: sheetInfo.id });
+                } catch (nameError) {
+                  console.warn(`Failed to set sheet name for ${sheetInfo.id}:`, nameError);
+                }
+              }
+              
+              console.log(`✅ Added new sheet: ${sheetInfo.name} (ID: ${sheetInfo.id})`);
+            }
+          } catch (error) {
+            console.warn(`Failed to add sheet ${sheetInfo.name}:`, error);
+          }
+        }
+        
+        // Clear pending sheet creations after applying
+        if (data.sheets.length > 0) {
+          await fetch(`${this.apiUrl}/api/pending-sheet-creations`, {
+            method: "DELETE",
+          });
+          console.log(`Cleared ${data.sheets.length} pending sheet creation(s)`);
+        }
+      }
+    } catch (error) {
+      console.warn("Error checking for new sheets:", error);
+    }
+  }
+
+  /**
    * Apply updates to the spreadsheet
    */
   async applyUpdates(sheetId, updates) {
@@ -170,26 +231,72 @@ class FortuneSheetAIClient {
     try {
       const workbook = window.workbookRef.current;
       
+      // Verify the sheet exists before applying updates
+      const allSheets = workbook.getAllSheets();
+      const sheet = allSheets.find(s => s.id === sheetId);
+      
+      if (!sheet) {
+        console.warn(`⚠️ Sheet with ID ${sheetId} not found in workbook. Available sheets:`, 
+          allSheets.map(s => `${s.name} (${s.id})`).join(', '));
+        console.warn(`   Updates will be skipped. Sheet may need to be created first.`);
+        return;
+      }
+      
+      // Get sheet name for logging
+      const sheetName = sheet.name || 'Unknown';
+      console.log(`📝 Applying ${updates.length} updates to sheet "${sheetName}" (ID: ${sheetId})`);
+      
+      // Activate the target sheet first to ensure updates go to the correct sheet
+      // This is critical - setCellValue might not respect the id option in all cases
+      try {
+        workbook.activateSheet({ id: sheetId });
+        console.log(`   ✅ Activated sheet "${sheetName}"`);
+        // Wait a bit for sheet to fully activate
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (activateError) {
+        console.error(`   ❌ Failed to activate sheet ${sheetId}:`, activateError);
+        // Continue anyway - might still work with id option
+      }
+      
       // Apply each update
+      let successCount = 0;
+      let errorCount = 0;
+      
       for (const update of updates) {
-        const { row, col, value, formula } = update;
+        const { row, col, value, formula, cell } = update;
         
         try {
           if (formula) {
-            // Set formula
-            workbook.setCellValue(row, col, formula, { id: sheetId });
+            // Set formula - try with id option first, fallback to current sheet (we activated above)
+            try {
+              workbook.setCellValue(row, col, formula, { id: sheetId });
+            } catch (e) {
+              // Fallback: use current sheet (we activated it above)
+              workbook.setCellValue(row, col, formula);
+            }
           } else if (value !== null && value !== undefined) {
-            // Set value
-            workbook.setCellValue(row, col, value, { id: sheetId });
+            // Set value - try with id option first, fallback to current sheet (we activated above)
+            try {
+              workbook.setCellValue(row, col, value, { id: sheetId });
+            } catch (e) {
+              // Fallback: use current sheet (we activated it above)
+              workbook.setCellValue(row, col, value);
+            }
           }
+          successCount++;
         } catch (error) {
-          console.warn(`Failed to set cell ${update.cell}:`, error);
+          errorCount++;
+          console.warn(`   ⚠️ Failed to set cell ${cell || `${row},${col}`}:`, error.message || error);
         }
       }
       
-      console.log(`Applied ${updates.length} updates to sheet ${sheetId}`);
+      if (errorCount > 0) {
+        console.warn(`⚠️ Applied ${successCount}/${updates.length} updates to sheet "${sheetName}" (${errorCount} errors)`);
+      } else {
+        console.log(`✅ Successfully applied ${successCount} updates to sheet "${sheetName}"`);
+      }
     } catch (error) {
-      console.error("Error applying updates:", error);
+      console.error(`❌ Error applying updates to sheet ${sheetId}:`, error);
     }
   }
 }

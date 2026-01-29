@@ -42,6 +42,118 @@ app.get("/api/sheets", (req, res) => {
 });
 
 /**
+ * Create a new sheet
+ * POST /api/sheets
+ * Body: { name?: string, order?: number }
+ */
+app.post("/api/sheets", (req, res) => {
+  try {
+    const { name, order } = req.body;
+    
+    // Generate unique sheet ID
+    const sheetId = `sheet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Determine sheet name (default to "Sheet" + number)
+    const existingNames = workbookData.map(s => s.name);
+    let sheetName = name;
+    if (!sheetName) {
+      let sheetNum = workbookData.length + 1;
+      sheetName = `Sheet${sheetNum}`;
+      while (existingNames.includes(sheetName)) {
+        sheetNum++;
+        sheetName = `Sheet${sheetNum}`;
+      }
+    } else if (existingNames.includes(sheetName)) {
+      // If name exists, append number
+      let sheetNum = 1;
+      let newName = `${sheetName}${sheetNum}`;
+      while (existingNames.includes(newName)) {
+        sheetNum++;
+        newName = `${sheetName}${sheetNum}`;
+      }
+      sheetName = newName;
+    }
+    
+    // Determine order (default to end)
+    const sheetOrder = order !== undefined ? order : workbookData.length;
+    
+    // Create new sheet with default structure
+    const newSheet = {
+      id: sheetId,
+      name: sheetName,
+      order: sheetOrder,
+      row: 84, // Default row count
+      column: 60, // Default column count
+      status: 0,
+      config: {},
+      celldata: [],
+      data: [],
+      scrollLeft: 0,
+      scrollTop: 0,
+      luckysheet_select_save: [],
+      zoomRatio: 1,
+      image: [],
+      showGridLines: 1,
+      frozen: {},
+      chart: [],
+      isPivotTable: false,
+      pivotTable: null,
+      filter_select: null,
+      filter: null,
+      luckysheet_conditionformat_save: [],
+      luckysheet_alternateformat_save: [],
+      hyperlink: {},
+      luckysheet_alternateformat_save_model: [],
+      dataVerification: {},
+    };
+    
+    // Insert sheet at specified order
+    if (order !== undefined && order < workbookData.length) {
+      // Shift orders of existing sheets
+      workbookData.forEach(sheet => {
+        if (sheet.order >= order) {
+          sheet.order = (sheet.order || 0) + 1;
+        }
+      });
+      workbookData.splice(order, 0, newSheet);
+    } else {
+      workbookData.push(newSheet);
+    }
+    
+    // Initialize pending updates for the new sheet
+    pendingUpdates.set(sheetId, []);
+    
+    // Add to pending sheet creations queue for the app to apply
+    pendingSheetCreations.push({
+      id: sheetId,
+      name: sheetName,
+      order: sheetOrder,
+      sheetData: newSheet
+    });
+    
+    console.log(`New sheet created: ${sheetName} (ID: ${sheetId})`);
+    console.log(`Pending sheet creations: ${pendingSheetCreations.length}`);
+    
+    res.json({
+      success: true,
+      sheet: {
+        id: sheetId,
+        name: sheetName,
+        order: sheetOrder,
+      },
+      message: `Sheet "${sheetName}" created successfully`,
+    });
+  } catch (error) {
+    console.error("Error creating sheet:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to create sheet",
+      message: error.message,
+    });
+  }
+});
+
+/**
  * Convert column index to Excel-style column letter (A, B, C, ..., Z, AA, AB, ...)
  */
 function indexToColumnChar(index) {
@@ -87,6 +199,9 @@ function getCellReference(row, col) {
 
 // Store pending cell updates (queue for the app to apply)
 const pendingUpdates = new Map(); // sheet_id -> array of updates
+
+// Store pending sheet creations (queue for the app to apply)
+const pendingSheetCreations = []; // array of { id, name, order, sheetData }
 
 
 /**
@@ -400,6 +515,13 @@ app.post("/api/sheet/:id/from-table", (req, res) => {
   
   pendingUpdates.get(req.params.id).push(...updates);
   
+  // Log queue status
+  const totalPending = pendingUpdates.get(req.params.id).length;
+  console.log(`📥 Queued ${updates.length} updates for sheet ${req.params.id} (${sheet?.name || 'Unknown'})`);
+  if (totalPending > 100) {
+    console.warn(`⚠️  WARNING: Sheet ${req.params.id} has ${totalPending} pending updates (may be stuck)`);
+  }
+  
   res.json({
     success: true,
     message: `${updates.length} cell updates queued from table format`,
@@ -434,6 +556,137 @@ app.delete("/api/sheet/:id/pending-updates", (req, res) => {
 });
 
 /**
+ * Get pending sheet creations (called by the app to apply new sheets)
+ * GET /api/pending-sheet-creations
+ */
+app.get("/api/pending-sheet-creations", (req, res) => {
+  res.json({
+    sheets: pendingSheetCreations,
+    count: pendingSheetCreations.length,
+  });
+});
+
+/**
+ * Clear pending sheet creations after they've been applied
+ * DELETE /api/pending-sheet-creations
+ */
+app.delete("/api/pending-sheet-creations", (req, res) => {
+  const count = pendingSheetCreations.length;
+  pendingSheetCreations.length = 0; // Clear the array
+  res.json({
+    success: true,
+    message: `Cleared ${count} pending sheet creations`,
+    cleared: count,
+  });
+});
+
+/**
+ * Get all pending updates across all sheets (for monitoring/debugging)
+ * GET /api/pending-updates/all
+ */
+app.get("/api/pending-updates/all", (req, res) => {
+  const allPending = {};
+  let totalUpdates = 0;
+  
+  for (const [sheetId, updates] of pendingUpdates.entries()) {
+    const sheet = workbookData.find(s => s.id === sheetId);
+    allPending[sheetId] = {
+      sheet_name: sheet ? sheet.name : "Unknown",
+      updates_count: updates.length,
+      cells: updates.map(u => u.cell).slice(0, 50), // First 50 cells
+      total_cells: updates.length
+    };
+    totalUpdates += updates.length;
+  }
+  
+  res.json({
+    total_sheets_with_pending: pendingUpdates.size,
+    total_updates_queued: totalUpdates,
+    sheets: allPending,
+    timestamp: new Date().toISOString()
+  });
+});
+
+/**
+ * Get Excel tables for ALL sheets at once (for final review)
+ * GET /api/sheets/excel-tables/all
+ */
+app.get("/api/sheets/excel-tables/all", (req, res) => {
+  const allSheetsData = {};
+  
+  for (const sheet of workbookData) {
+    try {
+      // Reuse the logic from the single sheet endpoint
+      let maxRow = 0;
+      let maxCol = 0;
+      const cellMap = new Map();
+      
+      if (sheet.data) {
+        for (let r = 0; r < sheet.data.length; r++) {
+          if (!sheet.data[r]) continue;
+          for (let c = 0; c < sheet.data[r].length; c++) {
+            const cell = sheet.data[r][c];
+            if (cell != null) {
+              maxRow = Math.max(maxRow, r);
+              maxCol = Math.max(maxCol, c);
+              cellMap.set(`${r},${c}`, cell);
+            }
+          }
+        }
+      }
+      
+      // Build values table and formulas table
+      const valuesTable = {};
+      const formulasTable = {};
+      
+      for (let r = 0; r <= maxRow; r++) {
+        const rowNum = r + 1; // Excel-style row number (1-based)
+        valuesTable[rowNum] = {};
+        formulasTable[rowNum] = {};
+        
+        for (let c = 0; c <= maxCol; c++) {
+          const colLetter = indexToColumnChar(c);
+          const key = `${r},${c}`;
+          const cell = cellMap.get(key);
+          
+          if (cell) {
+            const value = cell.m !== undefined ? cell.m : (cell.v !== undefined ? cell.v : null);
+            const formula = cell.f || null;
+            
+            valuesTable[rowNum][colLetter] = value;
+            formulasTable[rowNum][colLetter] = formula || value;
+          } else {
+            valuesTable[rowNum][colLetter] = null;
+            formulasTable[rowNum][colLetter] = null;
+          }
+        }
+      }
+      
+      allSheetsData[sheet.id] = {
+        sheet_id: sheet.id,
+        sheet_name: sheet.name,
+        values_table: valuesTable,
+        formulas_table: formulasTable,
+        values_count: Object.keys(valuesTable).length,
+        formulas_count: Object.keys(formulasTable).length
+      };
+    } catch (error) {
+      allSheetsData[sheet.id] = {
+        sheet_id: sheet.id,
+        sheet_name: sheet.name,
+        error: error.message
+      };
+    }
+  }
+  
+  res.json({
+    sheets: allSheetsData,
+    total_sheets: workbookData.length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+/**
  * Health check
  */
 app.get("/api/health", (req, res) => {
@@ -447,5 +700,36 @@ app.get("/api/health", (req, res) => {
 app.listen(PORT, () => {
   console.log(`AI Service API Server running on http://localhost:${PORT}`);
   console.log(`Ready to receive data from FortuneSheet application`);
+  
+  // Periodic queue status logging (every 10 seconds)
+  setInterval(() => {
+    let totalPending = 0;
+    const sheetsWithPending = [];
+    
+    for (const [sheetId, updates] of pendingUpdates.entries()) {
+      if (updates.length > 0) {
+        const sheet = workbookData.find(s => s.id === sheetId);
+        totalPending += updates.length;
+        sheetsWithPending.push({
+          name: sheet?.name || 'Unknown',
+          id: sheetId,
+          count: updates.length
+        });
+      }
+    }
+    
+    if (totalPending > 0) {
+      console.log(`📊 Queue Status: ${totalPending} updates pending across ${sheetsWithPending.length} sheet(s)`);
+      if (sheetsWithPending.length > 0) {
+        sheetsWithPending.forEach(s => {
+          if (s.count > 50) {
+            console.warn(`   ⚠️  ${s.name}: ${s.count} updates (may be stuck)`);
+          } else {
+            console.log(`   - ${s.name}: ${s.count} updates`);
+          }
+        });
+      }
+    }
+  }, 10000); // Every 10 seconds
 });
 

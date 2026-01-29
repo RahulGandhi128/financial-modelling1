@@ -22,7 +22,49 @@ Spreadsheet updates automatically!
 
 ## Available Write APIs
 
-### 1. Set Single Cell
+### 1. Create New Sheet
+**Endpoint**: `POST /api/sheets`
+
+**Request Body**:
+```json
+{
+  "name": "Income Statement",
+  "order": 1
+}
+```
+
+**Parameters**:
+- `name` (optional): Name for the new sheet. If not provided, a default name will be generated (Sheet1, Sheet2, etc.). If the name already exists, a number will be appended.
+- `order` (optional): Position/order of the sheet in the workbook (0-based). If not provided, the sheet will be added at the end.
+
+**Response**:
+```json
+{
+  "success": true,
+  "sheet": {
+    "id": "sheet_1234567890_abc123",
+    "name": "Income Statement",
+    "order": 1
+  },
+  "message": "Sheet \"Income Statement\" created successfully"
+}
+```
+
+**Python Example**:
+```python
+from api_client import FortuneSheetAPIClient
+
+client = FortuneSheetAPIClient()
+result = client.createSheet(name="Assumptions", order=0)
+print(f"Created sheet: {result['sheet']['name']} (ID: {result['sheet']['id']})")
+```
+
+**Use Cases**:
+- Creating separate sheets for different financial statements
+- Organizing data into multiple worksheets
+- Building multi-sheet financial models
+
+### 2. Set Single Cell
 **Endpoint**: `POST /api/sheet/:id/cell`
 
 **Request Body**:
